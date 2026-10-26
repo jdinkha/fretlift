@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Outputs
+out/
+samples/
+separated/
+
+# Never commit audio; see CONTRIBUTING.md
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.aac
+*.aiff
+*.opus
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
