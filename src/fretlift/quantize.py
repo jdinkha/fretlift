@@ -58,10 +58,13 @@ def quantize(notes: list[Note], grid: BeatGrid, subdivision: int = 4) -> list[Ev
 
     onsets: dict[int, set[int]] = defaultdict(set)
     ends: dict[int, int] = {}
+    strings: dict[int, dict[int, int]] = defaultdict(dict)
     for n in notes:
         on = round(to_beats(n.start) * subdivision) - origin
         off = max(on + 1, round(to_beats(n.end) * subdivision) - origin)
         onsets[on].add(n.pitch)
+        if n.string is not None:
+            strings[on].setdefault(n.pitch, n.string)
         ends[on] = max(ends.get(on, on + 1), off)
 
     ticks = sorted(onsets)
@@ -69,5 +72,5 @@ def quantize(notes: list[Note], grid: BeatGrid, subdivision: int = 4) -> list[Ev
     for k, tick in enumerate(ticks):
         gap = ticks[k + 1] - tick if k + 1 < len(ticks) else ends[tick] - tick
         duration = max(1, min(gap, ends[tick] - tick))
-        events.append(Event(tick=tick, duration=duration, pitches=sorted(onsets[tick])))
+        events.append(Event(tick=tick, duration=duration, pitches=sorted(onsets[tick]), strings=strings[tick]))
     return events

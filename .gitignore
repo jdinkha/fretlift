@@ -28,3 +28,11 @@ separated/
 .vscode/
 .idea/
 .DS_Store
+
+# Training: datasets, caches, runs and checkpoints (docs/TRAINING.md)
+data/
+runs/
+reports/
+previews/
+.cache/
+*.pt

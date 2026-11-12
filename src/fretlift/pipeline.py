@@ -28,8 +28,8 @@ class PipelineConfig:
     tempo: float | None = None
     subdivision: int = 4
     time_signature: tuple[int, int] = (4, 4)
-    onset_threshold: float = 0.5
-    frame_threshold: float = 0.3
+    onset_threshold: float | None = None  # None = the trained model's tuned value
+    frame_threshold: float | None = None
     min_note_ms: float = 58.0
     formats: tuple[str, ...] = ("musicxml", "ascii")
     title: str | None = None
@@ -77,6 +77,10 @@ def run(audio_path: str | Path, out_dir: str | Path, cfg: PipelineConfig | None 
                 onset_threshold=cfg.onset_threshold,
                 frame_threshold=cfg.frame_threshold,
                 min_note_ms=cfg.min_note_ms,
+                tuning=cfg.tuning,
+                capo=cfg.capo,
+                max_fret=cfg.max_fret,
+                device=cfg.device,
             )
         grid = track_beats(audio_path, tempo=cfg.tempo)  # full mix: drums help
 

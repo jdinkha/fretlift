@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("audio", help="path to a local audio file (wav, mp3, flac, ...)")
     p.add_argument("-o", "--out", default="out", help="output directory (default: out)")
     p.add_argument("--no-separate", action="store_true", help="skip Demucs; use for solo guitar recordings")
-    p.add_argument("--device", help="torch device for Demucs, e.g. cuda or cpu")
+    p.add_argument("--device", help="torch device for Demucs and the transcription model, e.g. cuda or cpu")
     p.add_argument("--shifts", type=int, default=1, help="Demucs passes to average: cleaner stem, N times slower")
     p.add_argument(
         "--channel",
@@ -67,8 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=4,
         help="grid ticks per beat: 2=8ths, 4=16ths (default), 8=32nds",
     )
-    p.add_argument("--onset-threshold", type=float, default=0.5, help="Basic Pitch onset threshold (0-1)")
-    p.add_argument("--frame-threshold", type=float, default=0.3, help="Basic Pitch frame threshold (0-1)")
+    p.add_argument("--onset-threshold", type=float, help="onset threshold, 0-1 (default: the value tuned in training)")
+    p.add_argument("--frame-threshold", type=float, help="frame threshold, 0-1 (default: the value tuned in training)")
     p.add_argument("--min-note-ms", type=float, default=58.0, help="drop notes shorter than this")
     p.add_argument("--format", default="musicxml,ascii", help="comma-separated: musicxml, ascii")
     p.add_argument("--title", help="title written into the tab")

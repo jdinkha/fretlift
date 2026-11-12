@@ -13,6 +13,7 @@ class Note:
     end: float  # seconds
     pitch: int  # MIDI note number
     velocity: float = 1.0
+    string: int | None = None  # 1 = high E … 6 = low E; None when unknown
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,7 @@ class Event:
     duration: int
     pitches: list[int]
     tab: list[TabNote] = field(default_factory=list)
+    strings: dict[int, int] = field(default_factory=dict)  # pitch -> string the model heard (a hint for fretting)
 
 
 @dataclass

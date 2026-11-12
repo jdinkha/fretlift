@@ -21,10 +21,10 @@ costs with a model trained on real tabs.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .tuning import PRESETS
-from .types import Event, TabNote
+from .types import Event, Note, TabNote
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +42,9 @@ class FretConfig:
     w_height: float = 0.05
     w_shift: float = 1.0  # flat cost of moving the hand to a new position
     w_slide: float = 0.15  # extra cost per fret moved
+    # ponytail: untuned guess (3 = a lone note isn't worth a hand shift there and back, two notes are).
+    # Tune it against real tabs once a trained model exists.
+    w_string: float = 3.0  # cost per note placed on a different string than the model heard
     beam: int = 16  # candidate fingerings kept per event
 
     def __post_init__(self):
@@ -86,8 +89,13 @@ def _static_cost(frets: list[int], cfg: FretConfig) -> tuple[float, int | None, 
     return cost, lo, hi
 
 
-def candidates(pitches: list[int], cfg: FretConfig) -> list[_Fingering]:
-    """All ways to play ``pitches`` at once, one note per string, cheapest first."""
+def candidates(pitches: list[int], cfg: FretConfig, prefer: dict[int, int] | None = None) -> list[_Fingering]:
+    """All ways to play ``pitches`` at once, one note per string, cheapest first.
+
+    ``prefer`` maps pitches to the string the transcription model heard them
+    on; other strings stay possible but cost ``cfg.w_string`` each.
+    """
+    prefer = prefer or {}
     n = len(cfg.tuning)
     playable = sorted({p for p in pitches if _options(p, cfg)})
     dropped = set(pitches) - set(playable)
@@ -111,6 +119,7 @@ def candidates(pitches: list[int], cfg: FretConfig) -> list[_Fingering]:
                 TabNote(pitch=p, string=_string_number(s, n), fret=f)
                 for p, (s, f) in zip(playable, chosen)
             )
+            cost += cfg.w_string * sum(prefer.get(t.pitch, t.string) != t.string for t in notes)
             results.append(_Fingering(notes, cost, lo, hi))
             return
         for s, f in opts[k]:
@@ -125,7 +134,7 @@ def candidates(pitches: list[int], cfg: FretConfig) -> list[_Fingering]:
     if not results and len(playable) > 1:
         # No way to give every note its own string; drop the middle voice and retry.
         mid = playable[len(playable) // 2]
-        return candidates([p for p in playable if p != mid], cfg)
+        return candidates([p for p in playable if p != mid], cfg, prefer)
     results.sort(key=lambda c: c.cost)
     return results[: cfg.beam]
 
@@ -147,7 +156,7 @@ def _hand_positions(c: _Fingering, cfg: FretConfig, n_positions: int) -> list[in
 def assign_frets(events: list[Event], cfg: FretConfig | None = None) -> list[Event]:
     """Fill in ``event.tab`` for every event. Unplayable events are removed."""
     cfg = cfg or FretConfig()
-    cands = [candidates(e.pitches, cfg) for e in events]
+    cands = [candidates(e.pitches, cfg, e.strings) for e in events]
     kept = [(e, c) for e, c in zip(events, cands) if c]
     if len(kept) < len(events):
         log.info("Skipped %d events with no playable notes", len(events) - len(kept))
@@ -198,3 +207,20 @@ def assign_frets(events: list[Event], cfg: FretConfig | None = None) -> list[Eve
         tab = sorted(chosen.notes, key=lambda t: -t.string)
         out.append(Event(tick=event.tick, duration=event.duration, pitches=[t.pitch for t in tab], tab=tab))
     return out
+
+
+def assign_strings(notes: list[Note], cfg: FretConfig | None = None, chord_tol: float = 0.035) -> list[Note]:
+    """Give every note a string with the fingering search, for transcribers that only hear pitches.
+
+    Notes starting within ``chord_tol`` seconds of each other are fingered as
+    one chord. Notes the search can't place keep ``string=None``.
+    """
+    groups: list[list[Note]] = []
+    for n in sorted(notes, key=lambda n: (n.start, n.pitch)):
+        if groups and n.start - groups[-1][0].start <= chord_tol:
+            groups[-1].append(n)
+        else:
+            groups.append([n])
+    events = [Event(tick=i, duration=1, pitches=sorted({n.pitch for n in g})) for i, g in enumerate(groups)]
+    placed = {e.tick: {t.pitch: t.string for t in e.tab} for e in assign_frets(events, cfg)}
+    return [replace(n, string=placed.get(i, {}).get(n.pitch)) for i, g in enumerate(groups) for n in g]

@@ -63,3 +63,22 @@ def test_high_melody_moves_up_the_neck():
     # Above fret 12 of the high e string there's only one option per note.
     events = [Event(i, 1, [p]) for i, p in enumerate([76, 77, 79])]
     assert [e.tab[0].fret for e in assign_frets(events)] == [12, 13, 15]
+
+
+def test_model_string_hints_beat_the_heuristic():
+    from fretlift.quantize import quantize
+    from fretlift.types import BeatGrid, Note
+
+    grid = BeatGrid(120.0, [i * 0.5 for i in range(8)])
+    (plain,) = assign_frets(quantize([Note(0.0, 0.4, 64)], grid))
+    (hinted,) = assign_frets(quantize([Note(0.0, 0.4, 64, string=2)], grid))
+    assert _frets_by_string(plain) == {1: 0}  # open high e is the cheapest place
+    assert _frets_by_string(hinted) == {2: 5}  # ...but the model heard it on the B string
+
+
+def test_assign_strings_fingers_chords_together():
+    from fretlift.fretting import assign_strings
+    from fretlift.types import Note
+
+    notes = [Note(0.0, 1.0, 40), Note(0.01, 1.0, 47), Note(0.02, 1.0, 52), Note(1.0, 1.5, 20)]
+    assert [n.string for n in assign_strings(notes)] == [6, 5, 4, None]  # MIDI 20 is unplayable

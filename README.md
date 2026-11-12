@@ -8,15 +8,15 @@ every note, and writes a tab you can open in MuseScore, Guitar Pro, TuxGuitar or
 the bundled browser viewer.
 
 ```
-audio ──► Demucs ──► Basic Pitch ──► notes ──► quantize ──► fingering ──► MusicXML
- (mix)   (guitar     (pitch +        (sec)     to beats     (Viterbi       + ASCII tab
-          stem)       onsets)                  grid)        search)
+audio ──► Demucs ──► transcriber ──► notes ──► quantize ──► fingering ──► MusicXML
+ (mix)   (guitar     (pitch, onset,  (sec)     to beats     (Viterbi       + ASCII tab
+          stem)       string)                  grid)        search)
             librosa beat tracking (on the full mix) ──┘
 ```
 
-> **Status:** Phase 1, a pipeline of pretrained models plus a heuristic
-> fingering search. It works best on clean, single-guitar recordings. See the
-> [roadmap](#roadmap).
+> **Status:** moving from Phase 1 (pretrained models plus a heuristic fingering
+> search) to Phase 2, a transcription model you train yourself. See
+> [Transcription model](#transcription-model) and the [roadmap](#roadmap).
 
 ## Intended use
 
@@ -85,6 +85,24 @@ Outputs:
 Run `fretlift --help` for every option (tunings, time signature, grid
 resolution, transcription thresholds).
 
+### Transcription model
+
+The transcriber is a model trained for guitar that also hears which string each
+note is on. fretlift doesn't ship weights, so you train it yourself (a free
+Colab GPU is enough): see [docs/TRAINING.md](docs/TRAINING.md). Then install
+the checkpoint where `fretlift` looks for it:
+
+```bash
+mkdir -p ~/.local/share/fretlift
+cp runs/gs-aug/best.pt ~/.local/share/fretlift/model.pt
+# or, for a one-off: FRETLIFT_MODEL=runs/gs-aug/best.pt fretlift song.wav
+```
+
+Until a checkpoint is there, `fretlift` warns and falls back to
+[Basic Pitch](https://github.com/spotify/basic-pitch). That fallback is
+**deprecated**: it's weak on isolated guitar stems and will be removed once a
+trained model is the norm.
+
 ### Viewer
 
 `viewer/index.html` renders a tab and plays it back with
@@ -115,7 +133,7 @@ onset tolerance), the standard transcription metric.
 | Stage | Module | Tool |
 | --- | --- | --- |
 | Source separation | `separation.py` | [Demucs](https://github.com/facebookresearch/demucs) `htdemucs_6s` (has a guitar stem) |
-| Note transcription | `transcription.py` | [Basic Pitch](https://github.com/spotify/basic-pitch), limited to the guitar's range for the chosen tuning |
+| Note transcription | `transcription.py` | Your trained model (`training/`): pitch, onset and string per note. Falls back to Basic Pitch (deprecated) |
 | Beat tracking | `beats.py` | [librosa](https://librosa.org), run on the full mix because drums make the beat easier to find |
 | Quantization | `quantize.py` | Snaps onsets to a grid between detected beats (handles tempo drift); groups simultaneous notes into chords |
 | Fingering | `fretting.py` | Viterbi search over (fingering, hand position) states |
@@ -132,6 +150,9 @@ piece with these costs:
 - **height:** a slight preference for lower positions
 - **hand shifts:** a flat cost to move the hand, plus a little per fret moved;
   open strings can be played from any position
+- **heard strings:** when the trained model says which string a note is on,
+  putting it anywhere else costs extra (`FretConfig.w_string`), so the model
+  decides and the search only overrules it where the result would be awkward
 
 Hand position is part of the search state. Without it, a melody can "creep" up
 the neck one cheap step at a time, which is the classic failure of greedy
@@ -152,10 +173,11 @@ position, and the "Ode to Joy" answer key comes out in standard first position.
 
 ## Roadmap
 
-1. **Phase 1 (this release):** pretrained models + heuristic fingering + MusicXML.
-2. **Phase 2:** train a model that predicts string and fret directly from audio
-   (TabCNN-style baseline, pretrained on synthetic data, fine-tuned on GuitarSet),
-   evaluated with tab-level F1 (right string *and* fret).
+1. **Phase 1:** pretrained models + heuristic fingering + MusicXML.
+2. **Phase 2 (in progress):** a model trained for guitar that predicts pitch,
+   onset and string from audio, evaluated with tab-level F1 (right string *and*
+   fret). The training code and the pipeline hook are in; next is training on
+   GuitarSet with amp augmentation, then removing Basic Pitch.
 3. **Phase 3:** a symbolic model that reranks fingerings to make them more idiomatic.
 
 Other ideas: downbeat and time-signature detection, technique detection,
