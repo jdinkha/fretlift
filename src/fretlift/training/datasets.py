@@ -15,6 +15,7 @@ import logging
 import urllib.request
 import zipfile
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -73,10 +74,20 @@ def _fetch_zip(url: str, archive: Path, checksum: str, dest: Path, keep=lambda m
     archive.unlink()
 
 
+def _fetch_zips(jobs: list[tuple]) -> None:
+    """Run ``_fetch_zip`` jobs all at once: Zenodo caps each connection's speed, not the total."""
+    if not jobs:
+        return
+    with ThreadPoolExecutor(len(jobs)) as pool:
+        for future in [pool.submit(_fetch_zip, *job) for job in jobs]:
+            future.result()  # re-raises a failed download
+
+
 def download_guitarset(root: str | Path, include_pickup: bool = True) -> None:
     """Download and unpack GuitarSet (about 1.5 GB with both audio versions)."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    jobs = []
     for name, checksum in GUITARSET_FILES.items():
         if name == "audio_mono-pickup_mix.zip" and not include_pickup:
             continue
@@ -84,7 +95,8 @@ def download_guitarset(root: str | Path, include_pickup: bool = True) -> None:
         if target_dir.exists() and any(target_dir.rglob("*")):
             print(f"{target_dir.name}: already unpacked")
             continue
-        _fetch_zip(GUITARSET_URL.format(name=name), root / name, checksum, target_dir)
+        jobs.append((GUITARSET_URL.format(name=name), root / name, checksum, target_dir))
+    _fetch_zips(jobs)
 
 
 def prepare_guitarset(root: str | Path, include_pickup: bool = True) -> Path:
@@ -159,12 +171,14 @@ def download_guitar_techs(root: str | Path) -> None:
     """Download and unpack Guitar-TECHS (4.1 GB of zips, about the same unpacked)."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    jobs = []
     for name, checksum in GUITAR_TECHS_FILES.items():
         part = root / name.removesuffix(".zip")
         if part.exists() and any(part.rglob("*.mid")):
             print(f"{part.name}: already unpacked")
             continue
-        _fetch_zip(GUITAR_TECHS_URL.format(name=name), root / name, checksum, root, keep=_guitar_techs_member)
+        jobs.append((GUITAR_TECHS_URL.format(name=name), root / name, checksum, root, _guitar_techs_member))
+    _fetch_zips(jobs)
 
 
 def prepare_guitar_techs(root: str | Path) -> Path:

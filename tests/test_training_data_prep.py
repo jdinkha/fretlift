@@ -1,10 +1,11 @@
 import json
+import zipfile
 
 import numpy as np
 import pytest
 
 from fretlift.training.audio import AudioCache, load_audio, write_wav
-from fretlift.training.datasets import prepare_folder, prepare_guitar_techs, prepare_guitarset
+from fretlift.training.datasets import _fetch_zips, _md5, prepare_folder, prepare_guitar_techs, prepare_guitarset
 from fretlift.training.labels import load_labels, save_labels
 from fretlift.training.manifest import Item, assign_splits, filter_tags, hash_split, read_manifest
 from fretlift.types import Note
@@ -59,6 +60,25 @@ def test_prepare_guitar_techs(tmp_path):
     assert sorted((n.pitch, n.string) for n in notes) == [(40, 6), (64, 1)]
     high_e = next(n for n in notes if n.string == 1)
     assert high_e.start == pytest.approx(0.1 - 0.0087)  # moved earlier by the pickup's measured delay
+
+
+def test_fetch_zips_downloads_in_parallel_and_unpacks(tmp_path):
+    jobs = []
+    for name in ("a", "b"):
+        src = tmp_path / "remote" / f"{name}.zip"
+        src.parent.mkdir(exist_ok=True)
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr(f"{name}/midi/x.mid", "data")
+            z.writestr("__MACOSX/junk", "")
+        jobs.append((src.as_uri(), tmp_path / "data" / src.name, _md5(src), tmp_path / "data",
+                     lambda m: not m.startswith("__MACOSX")))
+    (tmp_path / "data").mkdir()
+    _fetch_zips(jobs)
+    assert (tmp_path / "data" / "a" / "midi" / "x.mid").exists() and (tmp_path / "data" / "b" / "midi" / "x.mid").exists()
+    assert not (tmp_path / "data" / "__MACOSX").exists() and not list((tmp_path / "data").glob("*.zip"))
+    bad = [(jobs[0][0], tmp_path / "data" / "c.zip", "0" * 32, tmp_path / "data")]
+    with pytest.raises(RuntimeError, match="checksum"):
+        _fetch_zips(bad)
 
 
 def test_prepare_folder_eval_set(tmp_path):

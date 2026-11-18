@@ -183,15 +183,13 @@ position, and the "Ode to Joy" answer key comes out in standard first position.
 Other ideas: downbeat and time-signature detection, technique detection,
 Guitar Pro export, in-browser inference.
 
-## Development
+## Installing
 
 ```bash
 pip install -e ".[dev]"
 pytest          # core tests run without any ML dependencies
 ruff check .
 ```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [DATA_AND_MODELS.md](DATA_AND_MODELS.md).
 
 ## License
 
