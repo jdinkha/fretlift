@@ -85,6 +85,21 @@ matching file names. I couldn't confirm EGDB's exact layout, so check the
 `fretlift-data folder` (below) works per tone folder as a fallback. EGDB takes
 are split 80/10/10 by take, all tones together.
 
+**Guitar-TECHS** (electric, ~5 h, 3 players, per-string labels from a MIDI
+pickup, CC BY 4.0). Every take comes as a direct-input recording (`di`) and a
+mic'd amp (`amp`):
+
+```bash
+fretlift-data guitar-techs --root data/guitar-techs --download
+```
+
+Groups are the players, `guitar-techs-P1` ... `-P3`. Players 1 and 2 recorded
+single notes, scales, chords and techniques (palm mutes, bends, ...); player 3
+recorded the only real pieces of music, so hold P3 out for validation. The
+MIDI pickup reports notes 4-28 ms late (most on the low strings, and it
+differs per player); the converter moves them back by the measured delay, and
+drops the handful it reported at frets the guitars don't have.
+
 **Your own recordings: the most valuable eval set.** A dozen short clips of
 exactly what fails today (gentle fingerpicking, palm-muted metal riffs) tell
 you more than any benchmark. Put audio and labels side by side with matching
@@ -260,6 +275,20 @@ fretlift-train --manifest data/guitarset/manifest.jsonl --manifest data/egdb/man
 EGDB items carry their own split, so they're validated and tested on held-out
 takes automatically. If its MIDI has no per-string tracks, those notes still
 train pitch and onset; the string head just skips them.
+
+### Adding Guitar-TECHS, starting from an earlier model
+
+```bash
+fretlift-train --manifest data/guitarset/manifest.jsonl --manifest data/guitar-techs/manifest.jsonl \
+    --val-groups guitarset-player-04,guitar-techs-P3 --test-groups guitarset-player-05 \
+    --augment full --val-distort high_gain --init runs/gs-aug/best.pt --out runs/gs-techs
+```
+
+`--init` copies the weights (and model size) from an earlier checkpoint and
+then trains with a fresh learning-rate schedule. The earlier run directory is
+left alone. Train on all the datasets together each time rather than one after
+another: a model trained on one dataset and then only on the next forgets much
+of the first.
 
 ## Comparing runs
 

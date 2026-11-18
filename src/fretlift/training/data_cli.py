@@ -24,6 +24,14 @@ def cmd_guitarset(args):
     prepare_guitarset(args.root, include_pickup=not args.no_pickup)
 
 
+def cmd_guitar_techs(args):
+    from .datasets import download_guitar_techs, prepare_guitar_techs
+
+    if args.download:
+        download_guitar_techs(args.root)
+    prepare_guitar_techs(args.root)
+
+
 def cmd_egdb(args):
     from .datasets import prepare_egdb
 
@@ -110,6 +118,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--download", action="store_true", help="download from Zenodo first (~1.5 GB)")
     s.add_argument("--no-pickup", action="store_true", help="skip the pickup-mix audio version")
     s.set_defaults(func=cmd_guitarset)
+
+    s = sub.add_parser("guitar-techs", help="download/convert Guitar-TECHS (electric, DI + mic'd amp, per-string labels)")
+    s.add_argument("--root", required=True)
+    s.add_argument("--download", action="store_true", help="download from Zenodo first (~4.1 GB)")
+    s.set_defaults(func=cmd_guitar_techs)
 
     s = sub.add_parser("egdb", help="convert an EGDB download (electric, DI + amp renders)")
     s.add_argument("--root", required=True)

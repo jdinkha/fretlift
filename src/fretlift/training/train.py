@@ -12,6 +12,9 @@ The same split with amp/distortion augmentation, also validating on distorted au
         --val-groups guitarset-player-04 --test-groups guitarset-player-05 \\
         --augment full --val-distort high_gain --out runs/gs-aug
 
+To train on more data starting from an earlier model (its run directory is
+left alone), add ``--init runs/gs-aug/best.pt`` and a new ``--out``.
+
 Each run directory gets ``best.pt`` (best validation score), ``last.pt``
 (for --resume), ``history.csv``, ``thresholds.json`` (tuned on validation)
 and ``test_report.json`` (the held-out test set, evaluated once at the end).
@@ -82,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--hidden", type=int, default=256)
     p.add_argument("--out", required=True, help="run directory")
     p.add_argument("--resume", help="continue from a last.pt")
+    p.add_argument("--init", help="start from this checkpoint's weights (and model size), with a fresh schedule")
     p.add_argument("--device", default="auto")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-val-items", type=int, help="validate on a subset (faster epochs)")
@@ -122,8 +126,11 @@ def main(argv: list[str] | None = None) -> int:
         print("error: need training and validation items; check --val-groups/--test-groups", file=sys.stderr)
         return 2
 
+    init = torch.load(args.init, map_location="cpu", weights_only=False) if args.init else None
     model_cfg = ModelConfig(channels=args.channels, hidden=args.hidden)
-    cache = AudioCache(Path(args.cache_dir) / "audio", model_cfg.sr)
+    if init:
+        model_cfg = ModelConfig.from_dict(init["model_config"])
+    cache =AudioCache(Path(args.cache_dir) / "audio", model_cfg.sr)
     augmenter = None
     if args.augment == "full":
         augmenter = Augmenter(AugmentConfig(ir_dir=args.ir_dir, p_amp=args.p_amp), model_cfg.sr)
@@ -141,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
     distorts = ["none"] + ([args.val_distort] if args.val_distort != "none" else [])
 
     model = TabCRNN(model_cfg).to(device)
+    if init:
+        model.load_state_dict(init["model"])  # --resume, if also given, overrides this below
+        print(f"starting from the weights in {args.init}")
     print(f"model: {count_parameters(model) / 1e6:.2f}M parameters")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     total_steps = args.epochs * args.steps_per_epoch

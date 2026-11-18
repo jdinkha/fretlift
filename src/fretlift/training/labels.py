@@ -102,14 +102,19 @@ def parse_jams(path_or_doc, n_strings: int = N_STRINGS) -> list[Note]:
     return notes
 
 
+STRING_NAMES = {"e": 1, "B": 2, "G": 3, "D": 4, "A": 5, "E": 6}  # case matters: "e" is high, "E" is low
+
+
 def parse_midi(path: str | Path, strings: str = "auto") -> list[Note]:
     """Read notes from a MIDI file.
 
-    ``strings="auto"``: if the file has exactly six non-drum parts (one track
-    or channel per string, as hexaphonic MIDI pickups and some tab programs
-    export), each part becomes a string. They're ranked by average pitch, so
-    the order of the tracks in the file doesn't matter. Otherwise, or with
-    ``strings="none"``, notes have no string labels.
+    ``strings="auto"``: one track or channel per string, as hexaphonic MIDI
+    pickups and some tab programs export, gives string labels. Tracks named
+    after their strings ("e", "B", "G", "D", "A", "E", as in Guitar-TECHS) are
+    used by name, even when some strings never play. Otherwise a file with
+    exactly six non-drum parts has them ranked by average pitch, so the order
+    of the tracks doesn't matter. Anything else, or ``strings="none"``, gives
+    notes without string labels.
     """
     try:
         import pretty_midi
@@ -118,8 +123,13 @@ def parse_midi(path: str | Path, strings: str = "auto") -> list[Note]:
 
     pm = pretty_midi.PrettyMIDI(str(path))
     parts = [inst for inst in pm.instruments if inst.notes and not inst.is_drum]
-    per_string = strings == "auto" and len(parts) == N_STRINGS
-    if per_string:
+    names = [inst.name.strip() for inst in parts]
+    # A name can repeat: a stray note on another channel within the same string's track.
+    by_name = strings == "auto" and bool(parts) and set(names) <= STRING_NAMES.keys()
+    per_string = by_name or (strings == "auto" and len(parts) == N_STRINGS)
+    if by_name:
+        string_of = {id(inst): STRING_NAMES[name] for inst, name in zip(parts, names)}
+    elif per_string:
         ranked = sorted(parts, key=lambda inst: -np.mean([n.pitch for n in inst.notes]))
         string_of = {id(inst): s for s, inst in enumerate(ranked, start=1)}
     notes = [

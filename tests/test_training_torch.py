@@ -146,6 +146,16 @@ def test_train_cli_end_to_end(tmp_path):
     assert rc == 0
     assert len((run / "history.csv").read_text().strip().splitlines()) == 3  # header + 2 epochs
 
+    # --init starts a new run from those weights; the model size comes from the checkpoint
+    rc = main([
+        "--manifest", str(manifest), "--out", str(tmp_path / "run2"), "--epochs", "1", "--steps-per-epoch", "1",
+        "--batch-size", "2", "--clip-seconds", "1", "--workers", "0", "--device", "cpu",
+        "--cache-dir", str(tmp_path / "cache"), "--init", str(run / "best.pt"), "--no-final-test",
+    ])
+    assert rc == 0
+    model, ckpt = load_model(tmp_path / "run2" / "best.pt")
+    assert model.cfg.channels == 8 and ckpt["epoch"] == 1
+
 
 def test_eval_cli_on_checkpoint(tmp_path):
     from fretlift.training.evaluate import main as eval_main

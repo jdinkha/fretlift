@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 
 from fretlift.training.audio import AudioCache, load_audio, write_wav
-from fretlift.training.datasets import prepare_folder, prepare_guitarset
+from fretlift.training.datasets import prepare_folder, prepare_guitar_techs, prepare_guitarset
 from fretlift.training.labels import load_labels, save_labels
 from fretlift.training.manifest import Item, assign_splits, filter_tags, hash_split, read_manifest
 from fretlift.types import Note
 
-from .test_training_labels import jams_doc
+from .test_training_labels import jams_doc, write_string_midi
 
 
 def tone(seconds=1.0, sr=44100, hz=220.0):
@@ -42,6 +42,23 @@ def test_prepare_guitarset(tmp_path):
     assert tuning == (40, 45, 50, 55, 59, 64)
     splits = assign_splits(items, val_groups=["guitarset-player-01"])
     assert len(splits["train"]) == 4 and len(splits["val"]) == 4 and not splits["test"]
+
+
+def test_prepare_guitar_techs(tmp_path):
+    part = tmp_path / "P3_music"
+    (part / "midi").mkdir(parents=True)
+    # 90 on the high e would be fret 26, which a 22-fret guitar can't play.
+    write_string_midi(part / "midi" / "midi_01.mid", {"e": [90, 64], "E": [40]})
+    for kind in ("directinput", "micamp"):
+        write_wav(part / "audio" / kind / f"{kind}_01.wav", tone(), 48000)
+    items = read_manifest(prepare_guitar_techs(tmp_path))
+    assert {it.id for it in items} == {"guitar-techs/P3_music_01/di", "guitar-techs/P3_music_01/amp"}
+    assert {it.group for it in items} == {"guitar-techs-P3"}
+    assert all({"electric", "music"} <= set(it.tags) for it in items)
+    notes, _ = load_labels(items[0].labels)
+    assert sorted((n.pitch, n.string) for n in notes) == [(40, 6), (64, 1)]
+    high_e = next(n for n in notes if n.string == 1)
+    assert high_e.start == pytest.approx(0.1 - 0.0087)  # moved earlier by the pickup's measured delay
 
 
 def test_prepare_folder_eval_set(tmp_path):

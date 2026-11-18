@@ -1,9 +1,18 @@
 import json
 
 import numpy as np
+import pytest
 
 from fretlift.training.config import FPS, IGNORE, PITCH_MIN
-from fretlift.training.labels import load_labels, make_targets, parse_jams, save_labels, shift_pitch, window_notes
+from fretlift.training.labels import (
+    load_labels,
+    make_targets,
+    parse_jams,
+    parse_midi,
+    save_labels,
+    shift_pitch,
+    window_notes,
+)
 from fretlift.types import Note
 
 
@@ -61,3 +70,23 @@ def test_window_and_shift():
     assert len(w) == 1 and w[0].start == -0.5 and w[0].end == 0.5
     s = shift_pitch(notes, -2)
     assert [n.pitch for n in s] == [58, 60] and s[0].string == 2
+
+
+def write_string_midi(path, notes_by_name):
+    """A MIDI file with one track per string, named the way Guitar-TECHS names them."""
+    pretty_midi = pytest.importorskip("pretty_midi")
+    pm = pretty_midi.PrettyMIDI()
+    for name, pitches in notes_by_name.items():
+        inst = pretty_midi.Instrument(0, name=name)
+        inst.notes = [pretty_midi.Note(100, p, 0.1 * k, 0.1 * k + 0.5) for k, p in enumerate(pitches)]
+        pm.instruments.append(inst)
+    pm.write(str(path))
+    return path
+
+
+def test_parse_midi_strings_by_track_name(tmp_path):
+    # Only three strings play, and the B string plays higher than the G string, so
+    # neither the six-part rule nor ranking by pitch would label these right.
+    midi = write_string_midi(tmp_path / "a.mid", {"B": [67], "G": [60], "E": [40]})
+    assert {(n.pitch, n.string) for n in parse_midi(midi)} == {(67, 2), (60, 3), (40, 6)}
+    assert all(n.string is None for n in parse_midi(midi, strings="none"))
