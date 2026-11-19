@@ -66,6 +66,13 @@ def test_augmenter_without_pitch_shift_keeps_labels():
         assert n == notes and np.abs(y).max() <= 1.0
 
 
+def test_augmenter_skips_the_amp_for_audio_that_had_one():
+    aug = Augmenter(AugmentConfig(p_amp=1.0), SR)
+    for seed in range(5):
+        _, _, desc = aug(guitar_like(), [], np.random.default_rng(seed), amp=False)
+        assert not set(desc.split("+")) & (set(AMP_PRESETS) - {"none"})
+
+
 def test_apply_preset_is_deterministic():
     x = guitar_like()
     assert np.array_equal(apply_preset(x, SR, "crunch", 3), apply_preset(x, SR, "crunch", 3))

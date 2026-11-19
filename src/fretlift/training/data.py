@@ -45,6 +45,7 @@ class ClipDataset(Dataset):
         self.augmenter = augmenter
         self.seed = seed
         self.paths, self.notes, durations = [], [], []
+        self.amped = [any(t == "amp" for t in it.tags) for it in items]  # recorded through an amp already
         for k, it in enumerate(items, start=1):
             p = cache.ensure(it.audio)
             self.paths.append(str(p))
@@ -83,7 +84,7 @@ class ClipDataset(Dataset):
         sr = self.cfg.sr
         notes = window_notes(self.notes[k], start / sr, (start + self.clip) / sr)
         if self.augmenter is not None:
-            audio, notes, _ = self.augmenter(audio, notes, rng)
+            audio, notes, _ = self.augmenter(audio, notes, rng, amp=not self.amped[k])
         frame, onset, string = make_targets(
             notes, n_frames(self.clip, self.cfg.hop), self.cfg.fps, self.cfg.pitch_min, self.cfg.n_pitches
         )

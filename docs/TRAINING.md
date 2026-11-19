@@ -72,18 +72,17 @@ fretlift-data stats --manifest data/guitarset/manifest.jsonl
 Each excerpt gives two items, the microphone recording (`mic`) and the
 pickup mix (`pickup`). Groups are `guitarset-player-00` ... `-05`.
 
-**EGDB** (electric; DI recordings re-rendered through several amps). Download
-it from the authors (see their paper and project page), then:
+**EGDB** (electric, ~5 GB, per-string labels). 240 clips, each as a DI
+recording and rendered through five amps (Marshall, Mesa, Plexi, Fender Twin,
+Roland JC). It's a public Google Drive folder:
 
 ```bash
-fretlift-data egdb --root data/egdb
+fretlift-data egdb --root data/egdb --download
 ```
 
-The converter looks for `audio_<tone>/` folders and MIDI/JAMS labels with
-matching file names. I couldn't confirm EGDB's exact layout, so check the
-`stats` output: if it can't find the files it prints what it did find, and
-`fretlift-data folder` (below) works per tone folder as a fallback. EGDB takes
-are split 80/10/10 by take, all tones together.
+The labels keep each string on its own MIDI channel (channel 0 is the high E);
+track names and order vary, so the converter reads the channel. Each clip is a
+group (`egdb-1` ... `egdb-240`) shared by its six tones, and everything trains.
 
 **Guitar-TECHS** (electric, ~5 h, 3 players, per-string labels from a MIDI
 pickup, CC BY 4.0). Every take comes as a direct-input recording (`di`) and a
@@ -264,17 +263,18 @@ licensed stems (Slakh2100's non-guitar tracks, for example; check the license).
 Not separated commercial songs. Demucs is slow on CPU; run this on the GPU
 machine.
 
-### Adding EGDB
+### Adding EGDB, starting from gs-techs
 
 ```bash
-fretlift-train --manifest data/guitarset/manifest.jsonl --manifest data/egdb/manifest.jsonl \
-    --val-groups guitarset-player-04 --test-groups guitarset-player-05 \
-    --augment full --val-distort high_gain --out runs/gs-egdb-aug
+fretlift-train --manifest data/guitarset/manifest.jsonl --manifest data/guitar-techs/manifest.jsonl \
+    --manifest data/egdb/manifest.jsonl \
+    --val-groups guitarset-player-04,guitar-techs-P3 --test-groups guitarset-player-05 \
+    --augment full --val-distort high_gain --init runs/gs-techs/best.pt --out runs/gs-techs-egdb
 ```
 
-EGDB items carry their own split, so they're validated and tested on held-out
-takes automatically. If its MIDI has no per-string tracks, those notes still
-train pitch and onset; the string head just skips them.
+The validation set is the same as for gs-techs, so the scores compare directly.
+Items tagged `amp` (EGDB's renders, Guitar-TECHS's mic'd amp) skip the fake amp
+in `--augment full`, since they've been through a real one.
 
 ### Adding Guitar-TECHS, starting from an earlier model
 

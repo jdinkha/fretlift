@@ -33,9 +33,11 @@ def cmd_guitar_techs(args):
 
 
 def cmd_egdb(args):
-    from .datasets import prepare_egdb
+    from .datasets import download_egdb, prepare_egdb
 
-    print(f"wrote {prepare_egdb(args.root, midi_strings=args.midi_strings)}")
+    if args.download:
+        download_egdb(args.root)
+    prepare_egdb(args.root)
 
 
 def cmd_folder(args):
@@ -124,9 +126,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--download", action="store_true", help="download from Zenodo first (~4.1 GB)")
     s.set_defaults(func=cmd_guitar_techs)
 
-    s = sub.add_parser("egdb", help="convert an EGDB download (electric, DI + amp renders)")
+    s = sub.add_parser("egdb", help="download/convert EGDB (electric, DI + five amp renders, per-string labels)")
     s.add_argument("--root", required=True)
-    s.add_argument("--midi-strings", default="auto", choices=["auto", "none"])
+    s.add_argument("--download", action="store_true", help="download from Google Drive first")
     s.set_defaults(func=cmd_egdb)
 
     s = sub.add_parser("folder", help="your own recordings: audio files + matching label files")

@@ -26,7 +26,7 @@ ml = [
 ]
 # Training and evaluating your own model (docs/TRAINING.md). On a GPU machine,
 # install the PyTorch build for your CUDA version first.
-train = ["torch>=2.1", "scipy>=1.10", "soundfile>=0.12", "librosa>=0.10", "pretty_midi>=0.2.10"]
+train = ["torch>=2.1", "scipy>=1.10", "soundfile>=0.12", "librosa>=0.10", "pretty_midi>=0.2.10", "gdown>=5.2"]
 eval = ["mir_eval>=0.7"]
 dev = ["pytest>=7", "ruff>=0.4"]
 

@@ -214,7 +214,8 @@ class Augmenter:
         self.irs = load_irs(self.cfg.ir_dir, sr)
         self._warned = False
 
-    def __call__(self, audio: np.ndarray, notes: list[Note], rng: np.random.Generator):
+    def __call__(self, audio: np.ndarray, notes: list[Note], rng: np.random.Generator, amp: bool = True):
+        """``amp=False`` skips the fake amp, for audio that went through a real one."""
         c, sr = self.cfg, self.sr
         x = np.asarray(audio, np.float64)
         steps: list[str] = []
@@ -235,7 +236,7 @@ class Augmenter:
             x = eq(x, sr, "lowshelf", 200, rng.uniform(-5, 5))
             x = eq(x, sr, "highshelf", 3000, rng.uniform(-6, 4))
             steps.append("eq")
-        if rng.random() < c.p_amp:
+        if amp and rng.random() < c.p_amp:
             names = list(c.preset_weights)
             w = np.array([c.preset_weights[n] for n in names], float)
             preset = names[int(rng.choice(len(names), p=w / w.sum()))]

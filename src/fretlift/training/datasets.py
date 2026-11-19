@@ -3,8 +3,8 @@
 * GuitarSet (acoustic, per-string labels): downloadable from Zenodo here.
 * Guitar-TECHS (electric, DI + mic'd amp, per-string labels): downloadable
   from Zenodo here.
-* EGDB (electric, DI + amp renders): download it yourself; the converter
-  discovers the layout instead of assuming one.
+* EGDB (electric, DI + five amp renders, per-string labels): downloadable
+  from Google Drive here.
 * Any folder of your own recordings with matching label files.
 """
 
@@ -20,6 +20,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..tuning import PRESETS
+from ..types import Note
 from .audio import AUDIO_SUFFIXES
 from .labels import LABEL_SUFFIXES, load_labels, parse_jams, save_labels
 from .manifest import Item, hash_split, write_manifest
@@ -238,63 +239,93 @@ def prepare_guitar_techs(root: str | Path) -> Path:
 # --------------------------------------------------------------------- EGDB
 
 
-def prepare_egdb(root: str | Path, midi_strings: str = "auto") -> Path:
-    """Write ``<root>/manifest.jsonl`` for EGDB-style data.
+EGDB_FOLDER = "https://drive.google.com/drive/folders/1h9DrB4dk4QstgjNaHh7lL7IMeKdYw82_"
+EGDB_TONES = ("DI", "Ftwin", "JCjazz", "Marshall", "Mesa", "Plexi")  # the DI and five amp renders of it
+# The labels run early: pooled over all clips, the audio's onsets come 16 ms (DI) to 20 ms (renders) after
+# them, less the ~3 ms the same measurement gives on GuitarSet. Per-clip estimates didn't agree between
+# tones, so it's one constant.
+EGDB_EARLY_S = 0.013
 
-    Expects folders of audio named ``audio_<tone>`` (``audio_DI`` for the
-    clean direct input, the others for amp renders) and label files (MIDI or
-    JAMS) somewhere under ``root`` whose names match the audio files.
-    Every render of one take shares a group, so the take is never split across
-    train and test.
+
+def download_egdb(root: str | Path) -> None:
+    """Download EGDB from its Google Drive folder: 240 clips' MIDI, DI and amp renders.
+
+    Files already there are skipped, so an interrupted download can just be run again.
+    """
+    import gdown  # only EGDB needs it: it's the way to read a public Drive folder
+
+    root = Path(root)
+    keep = {"audio_label", *(f"audio_{t}" for t in EGDB_TONES)}  # skips RealData/, 13 unlabelled-string clips
+    files = gdown.download_folder(EGDB_FOLDER, output=str(root), skip_download=True, quiet=True, use_cookies=False)
+    todo = [f for f in files if f.path.split("/")[0] in keep and not Path(f.local_path).exists()]
+    print(f"Downloading {len(todo)} EGDB files")
+
+    def get(f):
+        Path(f.local_path).parent.mkdir(parents=True, exist_ok=True)
+        gdown.download(id=f.id, output=f"{f.local_path}.part", quiet=True, use_cookies=False)
+        Path(f"{f.local_path}.part").replace(f.local_path)  # only whole files count as already there
+
+    try:
+        with ThreadPoolExecutor(8) as pool:  # Drive, like Zenodo, is faster over several connections
+            list(pool.map(get, todo))  # re-raises a failed download
+    except gdown.exceptions.FileURLRetrievalError:
+        left = sum(not Path(f.local_path).exists() for f in todo)
+        raise RuntimeError(
+            f"Google Drive stopped serving EGDB to this address ({left} files still to get; it limits bulk "
+            "downloads for a while). The files so far are kept: run the same command again later for the rest."
+        ) from None
+
+
+def _egdb_notes(path: Path) -> list[Note]:
+    """EGDB puts each string on its own MIDI channel: channel 0 is the high E, channel 5 the low E.
+
+    (Track names and order vary between files, so the generic MIDI reader can't be used.)
+    """
+    import mido
+
+    t, sounding, notes = 0.0, {}, []
+    for msg in mido.MidiFile(path):  # all tracks merged, times in seconds
+        t += msg.time
+        if msg.type not in ("note_on", "note_off"):
+            continue
+        key = (msg.channel, msg.note)
+        if key in sounding:  # a note-off, or the same note struck again
+            start, velocity = sounding.pop(key)
+            notes.append(Note(start, t, msg.note, velocity / 127, msg.channel + 1 if msg.channel < 6 else None))
+        if msg.type == "note_on" and msg.velocity:
+            sounding[key] = (t, msg.velocity)
+    return sorted(notes, key=lambda n: (n.start, n.pitch))
+
+
+def prepare_egdb(root: str | Path) -> Path:
+    """Write ``<root>/manifest.jsonl``: an item per clip and tone.
+
+    Layout: ``audio_label/<n>.midi`` with ``audio_<tone>/<n>.wav`` (or .flac). Each clip is
+    its own group (``egdb-<n>``), shared by its tones, and everything trains.
     """
     root = Path(root)
-    label_files = {p.stem: p for p in sorted(root.rglob("*")) if p.suffix.lower() in LABEL_SUFFIXES and p.is_file()}
-    label_files = {k: v for k, v in label_files.items() if "fretlift" not in v.parts and v.name != "manifest.jsonl"}
-    audio_dirs = [
-        d
-        for d in sorted(root.rglob("audio_*"))
-        if d.is_dir() and "label" not in d.name.lower() and any(p.suffix.lower() in AUDIO_SUFFIXES for p in d.iterdir())
-    ]
-    if not audio_dirs or not label_files:
-        found = sorted({p.parent.name for p in root.rglob("*") if p.is_file()})[:20]
-        raise FileNotFoundError(
-            f"Couldn't find EGDB-style data under {root}: expected audio_<tone>/ folders and MIDI/JAMS labels. "
-            f"Folders with files found: {found}. If the layout differs, use `fretlift-data folder` per tone instead."
-        )
-
-    out_labels = root / "fretlift_labels"
-    converted: dict[str, Path] = {}
-    with_strings = 0
-    items, unmatched = [], 0
-    for d in audio_dirs:
-        tone = d.name[len("audio_") :]
-        kind = "di" if tone.lower() == "di" else "amp"
-        for audio in sorted(p for p in d.iterdir() if p.suffix.lower() in AUDIO_SUFFIXES):
-            src = label_files.get(audio.stem)
-            if src is None:
-                unmatched += 1
-                continue
-            if audio.stem not in converted:
-                notes, _ = load_labels(src, midi_strings=midi_strings)
-                with_strings += bool(notes) and all(n.string is not None for n in notes)
-                converted[audio.stem] = save_labels(out_labels / f"{audio.stem}.json", notes, tuning=STANDARD, source="egdb")
-            items.append(
-                Item(
-                    id=f"egdb/{audio.stem}/{tone}",
-                    audio=audio,
-                    labels=converted[audio.stem],
-                    group=f"egdb-{audio.stem}",
-                    tags=("egdb", "electric", kind, f"tone-{tone.lower()}"),
-                    split=hash_split(f"egdb:{audio.stem}"),
-                    tuning=STANDARD,
-                )
-            )
+    midis = sorted((root / "audio_label").glob("*.mid*"))
+    if not midis:
+        raise FileNotFoundError(f"No EGDB labels in {root / 'audio_label'}. Run with --download.")
+    items, dropped, total = [], 0, 0
+    for midi in midis:
+        notes = _egdb_notes(midi)
+        kept = [replace(n, start=n.start + EGDB_EARLY_S, end=n.end + EGDB_EARLY_S) for n in notes
+                if n.string is not None and 0 <= n.pitch - STANDARD[-n.string] <= 24]
+        dropped, total = dropped + len(notes) - len(kept), total + len(notes)
+        labels = save_labels(root / "labels" / f"{midi.stem}.json", kept, tuning=STANDARD, source="egdb")
+        for tone in EGDB_TONES:
+            # .wav as downloaded, or .flac in a smaller mono copy (training mixes to mono anyway)
+            audio = next((p for p in (root / f"audio_{tone}").glob(f"{midi.stem}.*") if p.suffix in AUDIO_SUFFIXES), None)
+            if audio:
+                kind = "di" if tone == "DI" else "amp"
+                items.append(Item(id=f"egdb/{midi.stem}/{tone}", audio=audio, labels=labels, group=f"egdb-{midi.stem}",
+                                  tags=("egdb", "electric", kind, f"tone-{tone.lower()}"), tuning=STANDARD))
     if not items:
-        raise FileNotFoundError("Found EGDB audio and labels, but no file names matched between them")
-    if unmatched:
-        log.warning("%d audio files had no matching label file and were skipped", unmatched)
-    print(f"{len(items)} items, {len(converted)} takes, {len(audio_dirs)} tones; string labels for {with_strings} takes")
-    return write_manifest(root / "manifest.jsonl", items)
+        raise FileNotFoundError(f"Found EGDB labels under {root}, but none of the matching audio")
+    out = write_manifest(root / "manifest.jsonl", items)
+    print(f"{len(items)} items from {len(midis)} clips -> {out} (dropped {dropped} of {total} unplayable notes)")
+    return out
 
 
 # ------------------------------------------------------------------- folder

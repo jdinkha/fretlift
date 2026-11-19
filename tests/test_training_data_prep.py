@@ -5,7 +5,14 @@ import numpy as np
 import pytest
 
 from fretlift.training.audio import AudioCache, load_audio, write_wav
-from fretlift.training.datasets import _fetch_zips, _md5, prepare_folder, prepare_guitar_techs, prepare_guitarset
+from fretlift.training.datasets import (
+    _fetch_zips,
+    _md5,
+    prepare_egdb,
+    prepare_folder,
+    prepare_guitar_techs,
+    prepare_guitarset,
+)
 from fretlift.training.labels import load_labels, save_labels
 from fretlift.training.manifest import Item, assign_splits, filter_tags, hash_split, read_manifest
 from fretlift.types import Note
@@ -60,6 +67,28 @@ def test_prepare_guitar_techs(tmp_path):
     assert sorted((n.pitch, n.string) for n in notes) == [(40, 6), (64, 1)]
     high_e = next(n for n in notes if n.string == 1)
     assert high_e.start == pytest.approx(0.1 - 0.0087)  # moved earlier by the pickup's measured delay
+
+
+def test_prepare_egdb_reads_strings_from_midi_channels(tmp_path):
+    mido = pytest.importorskip("mido")
+    mid = mido.MidiFile(ticks_per_beat=480)  # 120 bpm: 480 ticks = 0.5 s
+    # Unnamed tracks, as in many EGDB files; only the channel says which string.
+    for channel, pitch in ((0, 66), (3, 52), (5, 30)):  # high E fret 2, D fret 2, and a pitch below the low E
+        mid.tracks.append(mido.MidiTrack([
+            mido.Message("note_on", channel=channel, note=pitch, velocity=100, time=480),
+            mido.Message("note_off", channel=channel, note=pitch, velocity=0, time=480),
+        ]))
+    (tmp_path / "audio_label").mkdir()
+    mid.save(tmp_path / "audio_label" / "7.midi")
+    write_wav(tmp_path / "audio_DI" / "7.wav", tone(), 44100)
+    write_wav(tmp_path / "audio_Mesa" / "7.flac", tone(), 44100)  # (the converter only looks at the name)
+    items = read_manifest(prepare_egdb(tmp_path))
+    assert [it.id for it in items] == ["egdb/7/DI", "egdb/7/Mesa"]
+    assert {it.group for it in items} == {"egdb-7"} and not any(it.split for it in items)
+    assert "di" in items[0].tags and "amp" in items[1].tags and items[1].audio.suffix == ".flac"
+    notes, _ = load_labels(items[0].labels)
+    assert [(n.pitch, n.string) for n in notes] == [(52, 4), (66, 1)]
+    assert notes[0].start == pytest.approx(0.513) and notes[0].end == pytest.approx(1.013)  # EGDB_EARLY_S
 
 
 def test_fetch_zips_downloads_in_parallel_and_unpacks(tmp_path):

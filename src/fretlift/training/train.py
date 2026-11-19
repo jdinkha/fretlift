@@ -177,7 +177,8 @@ def main(argv: list[str] | None = None) -> int:
             "model": model.state_dict(), "model_config": model_cfg.to_dict(), "optimizer": opt.state_dict(),
             "scheduler": sched.state_dict(), "epoch": epoch, "scores": scores, "best": best,
             "args": vars(args), **(extra or {}),
-        }, path)
+        }, f"{path}.tmp")
+        os.replace(f"{path}.tmp", path)  # a run killed mid-save keeps its previous checkpoint
 
     hist_path = out / "history.csv"
     hist_fields = ["epoch", "time_s", "lr", "loss", "frame", "onset", "string", "select", *(
