@@ -105,12 +105,15 @@ trained model is the norm.
 
 ### Viewer
 
-`viewer/index.html` renders a tab and plays it back with
-[alphaTab](https://alphatab.net). It runs in your browser and never uploads the file.
+`fretlift-view` opens a browser viewer that lists the tabs in `out/` and plays
+them back with [alphaTab](https://alphatab.net). To show another folder, type its
+path in the box at the top of the list; the viewer opens with that folder next
+time (clear the box to go back to `out/`). It serves files to this computer only
+(127.0.0.1) and uploads nothing.
 
 ```bash
-python -m http.server 8000
-# open http://localhost:8000/viewer/ and drop in out/<name>.musicxml
+fretlift-view            # http://127.0.0.1:8000/
+fretlift-view --port 8001
 ```
 
 ## Try it on the bundled sample

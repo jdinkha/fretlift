@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fretlift viewer</title>
+<!--
+  Shows the tabs in a folder (MusicXML, Guitar Pro, alphaTex) and plays them back with alphaTab.
+  Start it with `fretlift-view`: it lists out/ by default, and remembers the folder you pick.
+  Opened any other way (a plain static server), the folder list hides and "Open tab…" and
+  drag-and-drop still work. Files never leave your computer.
+-->
+<script src="https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/alphaTab.js"></script>
+<style>
+  :root {
+    --bg: #faf8f5; --fg: #1d1b18; --muted: #6b665f; --line: #e3ded6;
+    --panel: #ffffff; --accent: #b4532a; --accent-fg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171614; --fg: #ece8e1; --muted: #a39d93; --line: #34312c;
+      --panel: #201f1c; --accent: #e07a4c; --accent-fg: #171614;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+           padding: 12px 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0;
+           background: var(--bg); z-index: 2; }
+  h1 { font-size: 16px; margin: 0 12px 0 0; letter-spacing: .02em; }
+  h1 span { color: var(--accent); }
+  button, label.btn { font: inherit; border: 1px solid var(--line); background: var(--panel);
+                      color: var(--fg); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  #status { color: var(--muted); font-size: 13px; margin-left: auto; }
+  input[type=file] { display: none; }
+  .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: calc(100vh - 60px); }
+  .layout.nolist { grid-template-columns: minmax(0, 1fr); }
+  .layout.nolist aside { display: none; }
+  aside { border-right: 1px solid var(--line); padding: 16px; position: sticky; top: 61px;
+          height: calc(100vh - 61px); overflow-y: auto; }
+  #folder { display: flex; gap: 6px; margin-bottom: 4px; }
+  #dir { flex: 1; min-width: 0; font: 13px ui-monospace, monospace; padding: 6px 8px; color: var(--fg);
+         background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+  #list { display: flex; flex-direction: column; gap: 2px; }
+  #list button { text-align: left; border-color: transparent; background: none; padding: 6px 8px;
+                 overflow-wrap: anywhere; }
+  #list button:hover { background: var(--panel); border-color: var(--line); }
+  #list button.active { background: var(--accent); color: var(--accent-fg); }
+  #list p { color: var(--muted); font-size: 13px; margin: 0; }
+  #drop { margin: 24px 16px; padding: 48px 16px; text-align: center; color: var(--muted);
+          border: 2px dashed var(--line); border-radius: 10px; }
+  #drop.hover { border-color: var(--accent); color: var(--fg); }
+  .viewport { padding: 0 16px 48px; overflow-x: hidden; }
+  /* alphaTab draws in black; give it a light sheet in dark mode for contrast */
+  #score { background: #ffffff; border-radius: 8px; margin-top: 16px; }
+  #score:empty { display: none; }
+  .at-cursor-bar { background: rgba(180, 83, 42, .12); }
+  .at-cursor-beat { background: var(--accent); width: 3px; }
+  .at-highlight * { fill: var(--accent); stroke: var(--accent); }
+  @media (max-width: 720px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    aside { border-right: 0; border-bottom: 1px solid var(--line); position: static; height: auto; max-height: 40vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>fret<span>lift</span> viewer</h1>
+  <label class="btn">Open tab… <input id="file" type="file" accept=".musicxml,.xml,.mxl,.gp,.gp3,.gp4,.gp5,.gpx,.atex"></label>
+  <button id="play" class="primary" disabled>Play</button>
+  <button id="stop" disabled>Stop</button>
+  <span id="status">No file loaded</span>
+</header>
+<div class="layout nolist" id="layout">
+  <aside>
+    <form id="folder">
+      <input id="dir" aria-label="Folder" spellcheck="false">
+      <button>Show</button>
+    </form>
+    <p class="hint">Opens with this folder next time. Clear it for the default.</p>
+    <div id="list"></div>
+  </aside>
+  <main class="viewport">
+    <div id="drop">Pick a tab, drop a <code>.musicxml</code> file here, or use “Open tab…”</div>
+    <div id="score"></div>
+  </main>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const status = (msg) => { $("status").textContent = msg; };
+  const KEY = "fretlift.folder";
+  const store = {  // storage can be blocked (private windows); the page still works without it
+    get() { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } },
+    set(v) { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY); } catch {} },
+  };
+
+  const api = new alphaTab.AlphaTabApi($("score"), {
+    core: { useWorkers: false },
+    display: { staveProfile: "Tab", scale: 1.0 },
+    player: {
+      enablePlayer: true,
+      enableCursor: true,
+      soundFont: "https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/soundfont/sonivox.sf2",
+      scrollElement: document.querySelector(".viewport"),
+    },
+  });
+
+  let loading = "";
+  api.scoreLoaded.on((score) => {
+    $("drop").style.display = "none";
+    const tempo = score.tempo ? ` · ${Math.round(score.tempo)} BPM` : "";
+    status(`${score.title || loading || "Untitled"}${tempo}`);
+  });
+  api.error.on((e) => status(`Couldn't open that file: ${e.message || e}`));
+  api.playerReady.on(() => { $("play").disabled = false; $("stop").disabled = false; });
+  api.playerStateChanged.on((e) => { $("play").textContent = e.state === 1 ? "Pause" : "Play"; });
+
+  function load(name, bytes) {
+    loading = name.replace(/\.[^.]+$/, "");
+    status(`Loading ${name}…`);
+    api.load(new Uint8Array(bytes));
+  }
+
+  async function openFile(file) {
+    if (file) load(file.name, await file.arrayBuffer());
+  }
+
+  async function showFolder(dir) {
+    let res, data;
+    try {
+      res = await fetch(`/api/list?dir=${encodeURIComponent(dir)}`);
+      data = await res.json();
+    } catch {
+      return;  // not started with fretlift-view: no folder list
+    }
+    $("layout").classList.remove("nolist");
+    if (!res.ok) { $("dir").value = dir; status(data.error); return; }
+    $("dir").value = data.dir;
+    $("dir").placeholder = data.default;
+    store.set(dir && data.dir !== data.default ? data.dir : "");
+    const list = $("list");
+    list.replaceChildren();
+    if (!data.files.length) {
+      list.innerHTML = "<p>No tabs in this folder yet. Make one with <code>fretlift song.flac</code>.</p>";
+      return;
+    }
+    for (const name of data.files) {
+      const b = document.createElement("button");
+      b.textContent = name.replace(/\.musicxml$/i, "");
+      b.title = name;
+      b.addEventListener("click", async () => {
+        list.querySelectorAll(".active").forEach((x) => x.classList.remove("active"));
+        b.classList.add("active");
+        const r = await fetch(`/api/file?dir=${encodeURIComponent(data.dir)}&name=${encodeURIComponent(name)}`);
+        if (r.ok) load(name, await r.arrayBuffer());
+        else status((await r.json()).error);
+      });
+      list.append(b);
+    }
+  }
+
+  $("folder").addEventListener("submit", (e) => { e.preventDefault(); showFolder($("dir").value.trim()); });
+  $("file").addEventListener("change", (e) => openFile(e.target.files[0]));
+  $("play").addEventListener("click", () => api.playPause());
+  $("stop").addEventListener("click", () => api.stop());
+
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("hover"); }));
+  ["dragleave", "drop"].forEach((t) => document.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("hover"); }));
+  document.addEventListener("drop", (e) => openFile(e.dataTransfer.files[0]));
+
+  showFolder(store.get());
+</script>
+</body>
+</html>

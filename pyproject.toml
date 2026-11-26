@@ -36,9 +36,13 @@ fretlift-data = "fretlift.training.data_cli:main"
 fretlift-train = "fretlift.training.train:main"
 fretlift-eval = "fretlift.training.evaluate:main"
 fretlift-sweep = "fretlift.training.sweep:main"
+fretlift-view = "fretlift.view:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+fretlift = ["viewer/index.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/fretlift/tuning.py"]
